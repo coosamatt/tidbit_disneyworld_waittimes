@@ -223,10 +223,12 @@ def _create_frame(info, icon, slot, slot_alpha, next_slot, next_alpha):
         child=render.Stack(
             children=[
                 # Background Icon positioned to hang off right side and touch top
-                # Move right by ~32 pixels (half screen width) so icon hangs off, move up to top (0)
+                # Icon is 24px wide, screen is 64px wide
+                # To hang halfway off: position at x=52 (64-12=52, so 12px hangs off)
+                # Top=0 to touch the very top
                 render.Padding(
-                    pad=(0, 0, 0, 32),  # (top, right, bottom, left) - top=0, left=32 to hang off
-                    child=_apply_brightness(icon, 0.45)  # 45% brightness
+                    pad=(0, 0, 0, 52),  # (top, right, bottom, left) - top=0 touches top, left=52 hangs halfway off
+                    child=icon  # Brightness already applied to the image data
                 ),
                 # Text Overlay
                 render.Padding(
@@ -261,30 +263,6 @@ def _text_with_shadow(content, color, font="tom-thumb"):
             render.Padding(
                 pad=(0, 0, 1, 0),
                 child=render.Text(content=content, color=color, font=font)
-            )
-        ]
-    )
-
-def _apply_brightness(image_widget, brightness):
-    """
-    Applies brightness reduction to an image by overlaying a semi-transparent box.
-    brightness: 0.0 to 1.0 (0.45 = 45% brightness)
-    """
-    # To reduce brightness to 45%, overlay a black box at 55% opacity
-    overlay_opacity = 1.0 - brightness  # 0.55 for 45% brightness
-    return render.Stack(
-        children=[
-            image_widget,
-            # Overlay a semi-transparent black box to reduce brightness
-            render.Box(
-                width=24,
-                height=24,
-                color="#000000",  # Black overlay
-                child=render.Box(
-                    width=24,
-                    height=24,
-                    color="#000000"
-                )
             )
         ]
     )
