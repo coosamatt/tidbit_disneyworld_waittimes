@@ -86,10 +86,8 @@ def main(config):
     if not park_data:
         return render.Root(child=render.Text("PARK NOT FOUND"))
         
-    # Extract hours
-    regular_hours = "Closed"
-    hopper_hours = "None"
-    extra_hours = ""
+    # Collect all time slots with their types
+    time_slots = []
     
     for schedule_group in park_data.get("schedules", []):
         group = schedule_group.get("group")
@@ -103,51 +101,192 @@ def main(config):
         time_disp = time_disp.replace(":00a", "a").replace(":00p", "p")
         
         if group == "operating":
-            regular_hours = time_disp
+            time_slots.append({"hours": time_disp, "type": "Park Hours", "color": "#FFFFFF"})
         elif group == "parkHopping":
-            hopper_hours = time_disp
-        elif group == "earlyEntry" or group == "extendedEvening":
-            # Extra Magic Hours / Early / Extended
-            extra_hours = "EM: " + time_disp
-
-    # Lines for the left side
-    # Using tom-thumb (small font) for everything to match the other app's clean look
-    lines = [
-        render.Text(content="Today", color=info["accent"], font="tom-thumb"),
-        render.Text(content=regular_hours, color="#FFFFFF", font="tom-thumb"),
-        render.Text(content="PH: " + hopper_hours, color="#B0B0B0", font="tom-thumb"),
-    ]
-    if extra_hours:
-        lines.append(render.Text(content=extra_hours, color=info["accent"], font="tom-thumb"))
-    else:
-        lines.append(render.Text(content=info["title"], color="#606060", font="tom-thumb"))
-
+            time_slots.append({"hours": time_disp, "type": "Park Hopper", "color": "#FFFFFF"})
+        elif group == "earlyEntry":
+            time_slots.append({"hours": time_disp, "type": "Extra Magic", "color": "#FFFFFF"})
+        elif group == "extendedEvening":
+            time_slots.append({"hours": time_disp, "type": "Extra Magic", "color": "#FFFFFF"})
+    
+    # If no time slots found, show fallback
+    if len(time_slots) == 0:
+        time_slots.append({"hours": "Closed", "type": "Park Hours", "color": "#FFFFFF"})
+    
     # Icon/Imagery based on park (official Disney icons from CDN)
     icon = _get_icon(park_id)
+    
+    # Create animation frames with fade in/out transitions
+    # Following Tidbyt community best practices: 20 fps (50ms per frame)
+    # Each time slot gets: fade-in frames, hold frames, fade-out frames
+    frames_per_second = 20  # Standard Tidbyt frame rate
+    hold_seconds = 2.5  # Hold each slot for 2.5 seconds
+    fade_seconds = 0.5  # Fade in/out over 0.5 seconds
+    
+    hold_frames = int(hold_seconds * frames_per_second)  # 50 frames
+    fade_frames = int(fade_seconds * frames_per_second)  # 10 frames
+    
+    widgets = []
+    
+    for slot_idx in range(len(time_slots)):
+        current_slot = time_slots[slot_idx]
+        next_slot = time_slots[(slot_idx + 1) % len(time_slots)]
+        
+        # Fade-in frames (current slot appearing)
+        for fade_step in range(fade_frames):
+            alpha = (fade_step + 1) / fade_frames  # 0 to 1
+            frame = _create_frame(info, icon, current_slot, alpha, None, 0.0)
+            widgets.append(frame)
+        
+        # Hold frames (full display of current slot) - reuse widget for efficiency
+        hold_frame = _create_frame(info, icon, current_slot, 1.0, None, 0.0)
+        for _ in range(hold_frames):
+            widgets.append(hold_frame)
+        
+        # Fade-out frames (current slot fading out, next slot fading in)
+        # Smooth transition: always pass both alphas, let _create_frame handle the display
+        for fade_step in range(fade_frames):
+            current_alpha = 1.0 - ((fade_step + 1) / fade_frames)  # 1 to 0
+            next_alpha = (fade_step + 1) / fade_frames  # 0 to 1
+            frame = _create_frame(info, icon, current_slot, current_alpha, next_slot, next_alpha)
+            widgets.append(frame)
+    
+    return render.Root(child=render.Animation(children=widgets))
 
-    return render.Root(
-        child=render.Box(
-            color=info["bg"],
-            child=render.Stack(
-                children=[
-                    # Background Icon shifted right (about half off-screen to the right)
-                    render.Padding(
-                        pad=(46, 0, 0, 0),
-                        child=icon
+def _create_frame(info, icon, slot, slot_alpha, next_slot, next_alpha):
+    """
+    Creates a single animation frame with optional fade blending between two slots.
+    alpha values range from 0.0 (invisible) to 1.0 (fully visible).
+    """
+    # Blend colors based on alpha
+    def blend_color(color, alpha):
+        """Blend color with background (black) based on alpha"""
+        if alpha >= 1.0:
+            return color
+        if alpha <= 0.0:
+            return "#000000"  # Fully transparent = black background
+        
+        # Helper to convert int to 2-digit hex
+        def to_hex(val):
+            hex_digits = "0123456789ABCDEF"
+            return hex_digits[val // 16] + hex_digits[val % 16]
+        
+        # Parse hex color
+        r = int(color[1:3], 16)
+        g = int(color[3:5], 16)
+        b = int(color[5:7], 16)
+        
+        # Blend with black background
+        r = int(r * alpha)
+        g = int(g * alpha)
+        b = int(b * alpha)
+        
+        # Convert back to hex
+        return "#" + to_hex(r) + to_hex(g) + to_hex(b)
+    
+    # Create lines with park name at top, then time info
+    # All time text is white, park name uses accent color
+    # Smooth transition: show slot with higher alpha, with threshold to prevent blinking
+    if next_slot != None and next_alpha > 0.0:
+        # During transition, show the slot that's more visible
+        # Use >= instead of > to ensure smooth switch at midpoint
+        if next_alpha >= slot_alpha:
+            # Next slot is more or equally visible - show it
+            time_color = blend_color("#FFFFFF", next_alpha)  # All time text is white
+            lines = [
+                _text_with_shadow(info["title"], info["accent"]),  # Park name at top
+                _text_with_shadow("Today", info["accent"]),
+                _text_with_shadow(next_slot["hours"], time_color),
+                _text_with_shadow(next_slot["type"], time_color),
+            ]
+        else:
+            # Current slot is more visible - show it
+            time_color = blend_color("#FFFFFF", slot_alpha)  # All time text is white
+            lines = [
+                _text_with_shadow(info["title"], info["accent"]),  # Park name at top
+                _text_with_shadow("Today", info["accent"]),
+                _text_with_shadow(slot["hours"], time_color),
+                _text_with_shadow(slot["type"], time_color),
+            ]
+    else:
+        # Current slot only (no transition)
+        time_color = blend_color("#FFFFFF", slot_alpha)  # All time text is white
+        lines = [
+            _text_with_shadow(info["title"], info["accent"]),  # Park name at top
+            _text_with_shadow("Today", info["accent"]),
+            _text_with_shadow(slot["hours"], time_color),
+            _text_with_shadow(slot["type"], time_color),
+        ]
+    
+    return render.Box(
+        color=info["bg"],
+        child=render.Stack(
+            children=[
+                # Background Icon positioned to hang off right side and touch top
+                # Move right by ~32 pixels (half screen width) so icon hangs off, move up to top (0)
+                render.Padding(
+                    pad=(0, 0, 0, 32),  # (top, right, bottom, left) - top=0, left=32 to hang off
+                    child=_apply_brightness(icon, 0.45)  # 45% brightness
+                ),
+                # Text Overlay
+                render.Padding(
+                    pad=(2, 1, 0, 1),
+                    child=render.Column(
+                        expanded=True,
+                        main_align="space_between",
+                        cross_align="start",
+                        children=lines
                     ),
-                    # Text Overlay
-                    render.Padding(
-                        pad=(2, 1, 0, 1),
-                        child=render.Column(
-                            expanded=True,
-                            main_align="space_between",
-                            cross_align="start",
-                            children=lines
-                        ),
-                    ),
-                ]
-            )
+                ),
+            ]
         )
+    )
+
+def _text_with_shadow(content, color, font="tom-thumb"):
+    """
+    Creates text with a shadow/outline for better readability.
+    Uses a Stack to layer shadow behind main text.
+    The shadow is offset slightly to create a drop shadow effect.
+    """
+    shadow_color = "#000000"  # Black shadow
+    # Use Stack to layer shadow and main text (no Box wrapper to avoid layout issues)
+    return render.Stack(
+        children=[
+            # Shadow layer (offset down and right by 1 pixel)
+            render.Padding(
+                pad=(1, 0, 0, 1),
+                child=render.Text(content=content, color=shadow_color, font=font)
+            ),
+            # Main text (positioned to overlay the shadow)
+            render.Padding(
+                pad=(0, 0, 1, 0),
+                child=render.Text(content=content, color=color, font=font)
+            )
+        ]
+    )
+
+def _apply_brightness(image_widget, brightness):
+    """
+    Applies brightness reduction to an image by overlaying a semi-transparent box.
+    brightness: 0.0 to 1.0 (0.45 = 45% brightness)
+    """
+    # To reduce brightness to 45%, overlay a black box at 55% opacity
+    overlay_opacity = 1.0 - brightness  # 0.55 for 45% brightness
+    return render.Stack(
+        children=[
+            image_widget,
+            # Overlay a semi-transparent black box to reduce brightness
+            render.Box(
+                width=24,
+                height=24,
+                color="#000000",  # Black overlay
+                child=render.Box(
+                    width=24,
+                    height=24,
+                    color="#000000"
+                )
+            )
+        ]
     )
 
 def _get_icon(park_id):
@@ -173,5 +312,5 @@ def _get_icon(park_id):
     
     # Fallback
     color = PARK_INFO.get(park_id, {}).get("accent", "#FFFFFF")
-    return render.Box(width=48, height=48, color=color)
+    return render.Box(width=24, height=24, color=color)
 
