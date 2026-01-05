@@ -140,3 +140,47 @@ If the above don't work, you may need to modify pixlet's Go source code to disab
 3. Rebuilding pixlet
 
 **Note:** The certificate is valid (issued by Google Trust Services). The issue is typically with Go's integration with macOS's Security framework or an outdated certificate store.
+
+---
+
+### Disney World Park Hours
+
+In addition to ride wait times, there is a dedicated applet for **Park Hours** in the `./park_hours` folder.
+
+#### Usage:
+```bash
+pixlet render park_hours/park_hours.star park_id=6
+```
+
+#### Batch Test:
+```bash
+./park_hours/test_hours.sh
+```
+This generates GIFs for all 4 Walt Disney World parks with their respective themes and background imagery (Castle, Spaceship Earth, Tower of Terror, Tree of Life).
+
+---
+
+## Batch Testing & Device Push
+
+Use `test.sh` to render every WDW ride with the themed palettes.
+
+- Default GIF batch (magnify 10) to `./test`:
+  ```bash
+  chmod +x test.sh
+  ./test.sh
+  ```
+  Outputs: `test/<ride>.gif`
+
+- Push mode (WEBP, no magnify) and send to device:
+  ```bash
+  MODE=push ./test.sh
+  ```
+  Outputs: `test/<ride>.webp` then runs  
+  `pixlet push heedlessly-conscious-heroic-raptor-8b5 <file> --api-token <token>`
+
+Variables you can override:
+- `PIXLET_BIN` – path to pixlet
+- `OUT_DIR` – output directory (default `./test`)
+- `MODE` – `gif` (default) or `push`
+- `PUSH_DEVICE` – Tidbyt device ID (default: `heedlessly-conscious-heroic-raptor-8b5`)
+- `PUSH_TOKEN` – API token for pushes
